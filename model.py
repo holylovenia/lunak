@@ -68,6 +68,7 @@ class LunakArtificialNeuralNetwork:
 
                     for layer in self.layers:
                         layer.update_weight()
+                        layer.init_delta_weight_zero()
 
                     pred = self.predict(X)
                     pred_val = self.predict(X_val)

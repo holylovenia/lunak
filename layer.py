@@ -27,6 +27,12 @@ class LunakDense:
             self.delta_weight_matrix_before = np.hstack((self.delta_weight_matrix_before, np.zeros((units, 1))))
             self.delta_weight_matrix = np.hstack((self.delta_weight_matrix, np.zeros((units, 1))))
             
+    def init_delta_weight_zero(self):
+        for idx_unit, unit in enumerate(self.delta_weight_matrix):
+            for idx_source, source in enumerate(unit):
+                self.delta_weight_matrix[idx_unit] = 0
+                self.delta_weight_matrix_before[idx_unit] = 0
+                
     def calculate_sigma(self, input_list):
         if self.use_bias:
             input_list = np.append(input_list, 1)
@@ -77,12 +83,12 @@ class LunakDense:
         if momentum == None:
             for j, unit in enumerate(self.weight_matrix): #j  
                 for i, source in enumerate(unit): #i
-                    delta_weight = lr * self.local_gradient[j] * input_list[i]
+                    delta_weight = self.delta_weight_matrix[j][i] + lr * self.local_gradient[j] * input_list[i]
                     self.delta_weight_matrix[j][i] = delta_weight.copy()
         else:
             for j, unit in enumerate(self.weight_matrix): #j  
                 for i, source in enumerate(unit): #i
-                    delta_weight = lr * self.local_gradient[j] * input_list[i] + momentum * self.delta_weight_matrix_before[j][i]
+                    delta_weight = self.delta_weight_matrix[j][i] + lr * self.local_gradient[j] * input_list[i] + momentum * self.delta_weight_matrix_before[j][i]
                     
                     # Update Delta Weight
                     self.delta_weight_matrix_before[j][i] = delta_weight.copy()
