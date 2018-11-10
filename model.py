@@ -1,104 +1,114 @@
-class LunakDense:
-    def __init__(self, units, activation, input_dim, init, use_bias=False, seed=None):
-        self.units = units
-        self.input_dim = input_dim
-        
-        if activation == 'sigmoid':
-            self.activation_function = self.sigmoid
-        else:
-            print('Activation function not supported')
-        
-        np.random.seed(seed)
-        
-        if init == 'uniform':
-            self.weight_matrix = np.random.uniform(-0.05, 0.05, size=(self.units, input_dim)) 
-        elif init == 'random':
-            self.weight_matrix = np.random.random(size=(self.units, input_dim))
-        else:
-            print('Init function not supported')
-        
-        self.delta_weight_matrix_before = np.zeros((self.units, input_dim))
-        self.delta_weight_matrix = np.zeros((self.units, input_dim))
-        
-        self.use_bias = use_bias
-        if self.use_bias:
-            bias = np.zeros((units, 1))
-            self.weight_matrix = np.hstack((self.weight_matrix, bias))
-            self.delta_weight_matrix_before = np.hstack((self.delta_weight_matrix_before, np.zeros((units, 1))))
-            self.delta_weight_matrix = np.hstack((self.delta_weight_matrix, np.zeros((units, 1))))
-            
-    def calculate_sigma(self, input_list):
-        if self.use_bias:
-            input_list = np.append(input_list, 1)
-        
-        result_list = np.array([])
-        for weight_neuron in self.weight_matrix:
-            result_list = np.append(result_list, np.dot(weight_neuron, input_list))
-        return np.array(result_list)
+class LunakArtificialNeuralNetwork:
+    def __init__(self, loss='root_mean_squared', optimizer='sgd'):
+        assert loss == 'root_mean_squared', 'loss function not supported'
+        assert optimizer == 'sgd', 'optimizer not supported'
+        self.layers = []
     
-    def calculate_output(self, input_list):
-        output_list = np.array([])
-        for sigma_neuron in self.calculate_sigma(input_list):
-            output_list = np.append(output_list, self.activation_function(sigma_neuron))
-        self.output_list = output_list
+    def add(self, layer):
+        self.layers.append(layer)
+        
+    def feed_forward(self, X_instance):
+        # Calculate output with the first hidden layer
+        output_list = self.layers[0].calculate_output(X_instance)
+        # Calculate output with the second until the last layer
+        for layer in self.layers[1:]:
+            next_output_list = layer.calculate_output(output_list)
+            output_list = next_output_list
         return output_list.copy()
+            
+    def backpropagation(self, y_instance):
+        # Calculate local gradient for output layer
+        next_local_gradient_list = self.layers[-1].calculate_local_gradient_output_layer([y_instance])
+        next_layer_weight_matrix = self.layers[-1].weight_matrix
+
+        # Calculate local gradient for hidden layer(s)
+        for layer_idx, layer in enumerate(reversed(self.layers[0:-1])):
+            next_local_gradient_list = layer.calculate_local_gradient_hidden_layer(next_local_gradient_list, next_layer_weight_matrix)
+            next_layer_weight_matrix = layer.weight_matrix
+            
+    def calculate_delta_weight(self, X_instance, lr, momentum):
+        # Update delta weight for first hidden layer
+        self.layers[0].update_delta_weight(lr, X_instance, momentum)
+        
+        # Update delta weight for other layers
+        for layer_idx, layer in enumerate(self.layers[1:]):
+            layer.update_delta_weight(lr, self.layers[layer_idx].output_list, momentum)
     
-    def calculate_local_gradient_output_layer(self, target_list):
-        """
-        Use this if the layer is output layer
-        """
-        result_list = np.array([])
-        for index, output in enumerate(self.output_list):
-            local_gradient = output * (1 - output) * (target_list[index] - output)
-            result_list = np.append(result_list, local_gradient)  
-        self.local_gradient = result_list
-        return result_list.copy()
-    
-    def calculate_local_gradient_hidden_layer(self, local_gradient_output_list, output_layer_weight_matrix):
-        """
-        Use this if the layer is hidden layer
-        """
-        result_list = np.array([])
-        for index, output in enumerate(self.output_list):
-            sigma_local_gradient_output = 0
-            for unit_number, local_gradient in enumerate(local_gradient_output_list):
-                sigma_local_gradient_output += output_layer_weight_matrix[unit_number][index] * local_gradient
-            error_hidden = output * (1 - output) * sigma_local_gradient_output
-            result_list = np.append(result_list, error_hidden)
-        self.local_gradient = result_list
-        return result_list.copy()
-    
-    def update_delta_weight(self, lr, input_list, momentum=None):
-        """
-        Function to update delta weight
-        """
-        if self.use_bias:
-            input_list = np.append(input_list, 1)
-        if momentum == None:
-            for j, unit in enumerate(self.weight_matrix): #j  
-                for i, source in enumerate(unit): #i
-                    delta_weight = lr * self.local_gradient[j] * input_list[i]
-                    self.delta_weight_matrix[j][i] = delta_weight.copy()
+    def fit(self, X, y, epochs, lr, momentum=None, batch_size=None, val_data=None, val_size=0):
+        assert X.shape[1] == self.layers[0].input_dim, 'Input dimension must be same with the column'
+        self.classes_ = np.unique(y)
+        
+        if batch_size == None:
+            batch_size = len(X)
+            
+        if val_data is None:
+            val_size = 0.1
+            X, X_val, y, y_val = train_test_split(X, y, test_size=val_size)
         else:
-            for j, unit in enumerate(self.weight_matrix): #j  
-                for i, source in enumerate(unit): #i
-                    delta_weight = lr * self.local_gradient[j] * input_list[i] + momentum * self.delta_weight_matrix_before[j][i]
+            X_val = val_data[0]
+            y_val = val_data[1]
+            
+        print('Train on {} samples, validate on {} samples'.format(len(X), len(X_val)))
+        
+        if val_data is not None and val_size != 0:
+            print('Validation data will be used instead of val_size.')
+            
+        for epoch in range(epochs):
+            delta = batch_size
+            
+            with tnrange(0, len(X), delta, desc='Epoch {}'.format(epoch + 1)) as pbar:
+                for start in pbar:
+                    X_batch = X[start:start+delta]
+                    y_batch = y[start:start+delta]
+
+                    for idx, X_instance in enumerate(X_batch):
+                        self.feed_forward(X_instance)
+                        self.backpropagation(y_batch[idx][0])
+                        self.calculate_delta_weight(X_instance, lr, momentum)
+
+                    for layer in self.layers:
+                        layer.update_weight()
+
+                    pred = self.predict(X)
+                    pred_val = self.predict(X_val)
                     
-                    # Update Delta Weight
-                    self.delta_weight_matrix_before[j][i] = delta_weight.copy()
-            
-            # Copy Last Update of Weight Matrix Before (Equal to Last Weight Matrix)
-            for j, unit in enumerate(self.delta_weight_matrix_before):
-                for i, source in enumerate(unit):
-                    self.delta_weight_matrix[j][i] = self.delta_weight_matrix_before[j][i].copy()
-            
-    def update_weight(self):
-        """
-        Function to update weight
-        """
-        for j, unit in enumerate(self.delta_weight_matrix_before):
-            for i, source in enumerate(unit):
-                self.weight_matrix[j][i] += self.delta_weight_matrix[j][i]
+                    pred_proba = self.predict_proba(X)
+                    pred_proba_val = self.predict_proba(X_val)
+
+                    acc = self.calculate_accuracy(y, pred)
+                    val_acc = self.calculate_accuracy(y_val, pred_val)
+                    loss = mean_squared_error(y, pred_proba)
+                    val_loss = mean_squared_error(y_val, pred_proba_val)
+
+                    postfix = {
+                        'loss': loss,
+                        'acc': acc,
+                        'val_loss': val_loss,
+                        'val_acc': val_acc
+                    }
+                    pbar.set_postfix(postfix, refresh=True)
     
-    def sigmoid(self, x):
-        return 1 / (1 + math.exp(-x))
+    def predict_proba(self, X):
+        predictions = []
+        for idx, X_instance in enumerate(X):
+            X_pred = self.feed_forward(X_instance)
+            predictions.append([np.mean(X_pred.copy())])
+        return predictions
+    
+    def predict(self, X):
+        predictions = []
+        for idx, X_instance in enumerate(X):
+            X_pred_proba = self.feed_forward(X_instance)
+            X_pred = min(self.classes_, key=lambda pred_class:abs(pred_class - np.mean(X_pred_proba)))
+            predictions.append([X_pred])
+        return predictions
+    
+    def calculate_accuracy(self, y_true, y_pred):
+        if len(confusion_matrix(y_true, y_pred).ravel()) > 1:
+            tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+        else:
+            tp = confusion_matrix(y_true, y_pred).ravel()[0]
+            fp = 0
+            fn = 0
+            tn = 0
+        return (tp + tn) / (tp + tn + fp + fn)
